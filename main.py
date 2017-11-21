@@ -36,7 +36,7 @@ def get_hog_features(img, orient, pix_per_cell, cell_per_block,vis=False, featur
                    visualise=vis, feature_vector=feature_vec)
     return features
 
-def extract_features(image, orient=11,pix_per_cell=16, cell_per_block=2, hog_channel='ALL'):
+def extract_features(image, orient=11,pix_per_cell=16, cell_per_block=2):
     feature_image = np.copy(image)
     hog_features = []
     for channel in range(feature_image.shape[2]):
@@ -58,7 +58,7 @@ def draw_labeled_bboxes(img, labels):
         cv2.rectangle(img, bbox[0], bbox[1], (0,0,255), 6)
     return img
 
-def process_img(img):
+def get_heat(img):
     tmp = img[400:]
 
     heat = np.zeros_like(tmp[:,:,0]).astype(np.float)
@@ -78,44 +78,53 @@ def process_img(img):
     mid_imgs1 = [extract_features(x) for x in mid_imgs1]
     mid_imgs2 = [extract_features(x) for x in mid_imgs2]
 
-    #big_imgs1 = np.array(get_img_parts(tmp[:256], 256))
-    #big_imgs2 = np.array(get_img_parts(tmp[50:306], 256))
-    #big_imgs1 = scaler.transform([extract_features(x) for x in big_imgs1])
-    #big_imgs2 = scaler.transform([extract_features(x) for x in big_imgs2])
+    big_imgs1 = np.array(get_img_parts(tmp[:196], 256))
+    big_imgs2 = np.array(get_img_parts(tmp[64:196+64], 256))
+    big_imgs1 = [extract_features(x) for x in big_imgs1]
+    big_imgs2 = [extract_features(x) for x in big_imgs2]
 
     for model in models:
         small_cars1 = np.where(model.predict(small_imgs1) >= 0.5)[0]
         small_cars2 = np.where(model.predict(small_imgs2) >= 0.5)[0]
         heat = heat_map(heat, small_cars1, int(64*0.5), 64, 0, 64)
         heat = heat_map(heat, small_cars2, int(64*0.5), 64, 16, 80)
-        #heat[heat < 2] = 0
         
         little_cars1 = np.where(model.predict(little_imgs1) >= 0.5)[0]
         little_cars2 = np.where(model.predict(little_imgs2) >= 0.5)[0]
         heat = heat_map(heat, little_cars1, int(96*0.5), 96, 0, 96)
         heat = heat_map(heat, little_cars2, int(96*0.5), 96, 32, 128)
-        #heat[heat < 2] = 0
 
         mid_cars1 = np.where(model.predict(mid_imgs1) >= 0.6)[0]
         mid_cars2 = np.where(model.predict(mid_imgs2) >= 0.6)[0]
         heat = heat_map(heat, mid_cars1, int(128*0.5), 128, 0, 128)
         heat = heat_map(heat, mid_cars2, int(128*0.5), 128, 30, 158)
-        #heat[heat < 2] = 0
         
-        #big_cars1 = np.where(model.predict(big_imgs1) > 0.9)[0]
-        #big_cars2 = np.where(model.predict(big_imgs2) > 0.9)[0]
-        #heat = heat_map(heat, big_cars1, int(256*0.5), 256, 0, 256)
-        #heat = heat_map(heat, big_cars2, int(256*0.5), 256, 50, 306)
+        big_cars1 = np.where(model.predict(big_imgs1) > 0.9)[0]
+        big_cars2 = np.where(model.predict(big_imgs2) > 0.9)[0]
+        heat = heat_map(heat, big_cars1, int(196*0.5), 196, 0, 196)
+        heat = heat_map(heat, big_cars2, int(196*0.5), 196, 64, 196+64)
         #heat[heat < 2] = 0
 
     heat[heat < 2] = 0
     heat = np.clip(heat,0,255)
-    #plt.imshow(heat)
-    #plt.show()
-    labels = label(heat)
+    return heat
 
-    draw_img = draw_labeled_bboxes(np.copy(tmp), labels)
-    return draw_img
+
+def process_img(img):
+    imgs_list.append(img)
+    if len(imgs_list) > 7:
+        imgs_list.pop(0)
+    heat_list.append(get_heat(img))
+    if len(heat_list) > 7:
+        heat_list.pop(0)
+    heat = np.array(sum(heat_list))
+    heat[heat < 4] = 0
+    #return img
+
+    labels = label(heat)
+    draw_img = draw_labeled_bboxes(np.copy(img[400:]), labels)
+    img[400:] = draw_img
+    return img
 
 #car_images = glob.glob('train_images/vehicles/*.png')
 #noncar_images = glob.glob('train_images/non-vehicles/*.png')
@@ -161,12 +170,14 @@ models.append(lgb.Booster(model_file='lgbm.txt'))
 #models.append(pickle.load(open('svc_save.txt', 'rb')))
 #models.append(pickle.load(open('boost_save.txt', 'rb')))
 
-#video_output = 'result.mp4'
-#clip1 = VideoFileClip("test_video.mp4")
-#white_clip = clip1.fl_image(process_img)
-#white_clip.write_videofile(video_output, audio=False)
-#
-#sys.exit()
+imgs_list = []
+heat_list = []
+video_output = 'result_long.mp4'
+clip1 = VideoFileClip("project_video.mp4")
+white_clip = clip1.fl_image(process_img)
+white_clip.write_videofile(video_output, audio=False)
+
+sys.exit()
 #
 #models = []
 #models.append(lgb.Booster(model_file='lgbm.txt'))
@@ -194,11 +205,6 @@ for idx,fname in enumerate(images):
     mid_imgs1 = [extract_features(x) for x in mid_imgs1]
     mid_imgs2 = [extract_features(x) for x in mid_imgs2]
 
-    #big_imgs1 = np.array(get_img_parts(tmp[:256], 256))
-    #big_imgs2 = np.array(get_img_parts(tmp[50:306], 256))
-    #big_imgs1 = scaler.transform([extract_features(x) for x in big_imgs1])
-    #big_imgs2 = scaler.transform([extract_features(x) for x in big_imgs2])
-
     for model in models:
         small_cars1 = np.where(model.predict(small_imgs1) >= 0.3)[0]
         small_cars2 = np.where(model.predict(small_imgs2) >= 0.3)[0]
@@ -214,12 +220,6 @@ for idx,fname in enumerate(images):
         mid_cars2 = np.where(model.predict(mid_imgs2) >= 0.3)[0]
         heat = heat_map(heat, mid_cars1, int(128*0.5), 128, 0, 128)
         heat = heat_map(heat, mid_cars2, int(128*0.5), 128, 30, 158)
-        
-        #big_cars1 = np.where(model.predict(big_imgs1) > 0.9)[0]
-        #big_cars2 = np.where(model.predict(big_imgs2) > 0.9)[0]
-        #heat = heat_map(heat, big_cars1, int(256*0.5), 256, 0, 256)
-        #heat = heat_map(heat, big_cars2, int(256*0.5), 256, 50, 306)
-        #heat[heat < 2] = 0
 
     heat[heat < 2] = 0
     heat = np.clip(heat,0,255)
@@ -228,5 +228,5 @@ for idx,fname in enumerate(images):
     labels = label(heat)
 
     draw_img = draw_labeled_bboxes(np.copy(tmp), labels)
-    plt.imshow(draw_img)
-    plt.show()
+    #plt.imshow(draw_img)
+    #plt.show()
